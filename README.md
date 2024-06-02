@@ -7,7 +7,7 @@
     - [x] Current buffer text (as fallback).
 - [x] Snippet expansion.
 - [ ] Info preview window.
-- [ ] Custom keymappings.
+- [x] Custom keymappings.
 
 #### Bug fixes
 - [ ] Keep completion suggestion window when deleting text

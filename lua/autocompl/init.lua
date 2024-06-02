@@ -1,7 +1,5 @@
 local M = {}
 
-M.configs = {}
-
 M.states = {
   confirm_done = false,
 }
@@ -11,74 +9,41 @@ M.keys = {
   fallback = vim.keycode "<C-x><C-n>",
 }
 
-M.setup = function()
-  local success, ls = pcall(require, "luasnip")
+M.visible = function()
+  return vim.fn.pumvisible() ~= 0
+end
 
+M.setup = function(opts)
+  local success, ls = pcall(require, "luasnip")
   if not success then
-    vim.notify(
-      "(autocompl.nvim) Requires luasnip as a dependency to support snippet expansion."
-        .. " Please check your dependencies list.",
-      vim.log.levels.ERROR
-    )
+    -- TODO: add proper error message with vim.notify
     return
   end
 
+  opts = (not vim.tbl_isempty(opts)) and opts
+    or {
+      keys = {
+        ["<C-y>"] = M.mapping.confirm,
+        ["<C-n>"] = M.mapping.select_next,
+        ["<C-p>"] = M.mapping.select_prev,
+        -- LS bindings
+        ["<C-l>"] = M.mapping(function()
+          if ls.expand_or_locally_jumpable() then
+            ls.expand_or_jump()
+          end
+        end, { "i", "s" }, { silent = true }),
+        ["<C-h>"] = M.mapping(function()
+          if ls.locally_jumpable(-1) then
+            ls.jump(-1)
+          end
+        end, { "i", "s" }, { silent = true }),
+      },
+    }
+
   -- Set options
-  vim.opt.completeopt = { "menuone", "popup", "noselect" }
+  vim.opt.completeopt = { "menuone", "popup", "noselect", "noinsert" }
   vim.opt.shortmess:append "c"
-
-  -- Listen to confirm key pressed event
-  vim.on_key(function(key)
-    if vim.fn.pumvisible() ~= 1 then
-      return
-    end
-
-    if key == vim.keycode "<C-y>" or key == vim.keycode "<Space>" then
-      M.states.confirm_done = true
-    end
-  end, 0)
-
-  -- Enter key behavior
-  -- TODO might need to refactor this if I am going to support custom keybindings
-  vim.keymap.set("i", "<CR>", function()
-    -- If some item is selected, confirm selection
-    if vim.fn.complete_info().selected ~= -1 then
-      return vim.keycode "<C-y>"
-    end
-    -- If pmenu is open and nothing selected, close it then newline
-    if vim.fn.pumvisible() == 1 then
-      return vim.keycode "<C-e><CR>"
-    end
-    -- Else, default
-    return vim.keycode "<CR>"
-  end, { expr = true })
-
-  -- Confirm key behavior
-  -- Auto confirm first item on <C-y>
-  vim.keymap.set("i", "<C-y>", function()
-    -- If some item is selected, confirm selection
-    if vim.fn.complete_info().selected ~= -1 then
-      return vim.keycode "<C-y>"
-    end
-    -- If pmenu is open and nothing is selected, select the first item
-    if vim.fn.pumvisible() == 1 then
-      return vim.keycode "<C-n><C-y>"
-    end
-    -- Else, default
-    return vim.keycode "<C-y>"
-  end, { expr = true })
-
-  -- LS Keybindings
-  vim.keymap.set({ "i", "s" }, "<C-l>", function()
-    if ls.expand_or_locally_jumpable() then
-      ls.expand_or_jump()
-    end
-  end, { silent = true })
-  vim.keymap.set({ "i", "s" }, "<C-h>", function()
-    if ls.locally_jumpable(-1) then
-      ls.jump(-1)
-    end
-  end, { silent = true })
+  M.bind_keys(opts.keys)
 
   -- Start
   M.create_autocmds()
@@ -107,7 +72,7 @@ M.set_completefunc = function(e)
 end
 
 M.trigger_completion = function()
-  if vim.fn.pumvisible() == 1 or vim.fn.state "m" == "m" then
+  if M.visible() or vim.fn.state "m" == "m" then
     return
   end
 
@@ -139,6 +104,87 @@ M.expand_snippet = function()
   require("luasnip").lsp_expand(vim.tbl_get(completion_item, "textEdit", "newText") or completion_item.insertText or "")
 
   M.states.confirm_done = false
+end
+
+M.bind_keys = function(keys)
+  for key, fn in pairs(keys) do
+    fn(key)
+  end
+end
+
+M.mapping = setmetatable({}, {
+  __call = function(_, invoke, modes, opts)
+    -- if type(invoke) == "function" then
+    -- end
+    return function(key)
+      vim.keymap.set(modes, key, invoke, opts)
+    end
+  end,
+})
+
+-- TODO: fix some mappings like <C-n> or <C-p> that does not work as confirm key
+M.mapping.confirm = function(key)
+  key = vim.keycode(key)
+
+  -- Listen to confirm key pressed event
+  vim.on_key(function(pressed_key)
+    if not M.visible() then
+      return
+    end
+    if pressed_key == key or pressed_key == vim.keycode "<Space>" then
+      M.states.confirm_done = true
+    end
+  end)
+
+  -- Default confirm key behavior
+  vim.keymap.set("i", key, function()
+    -- If some item is selected, confirm selection
+    if vim.fn.complete_info().selected ~= -1 then
+      return vim.keycode "<C-y>"
+    end
+    -- If pmenu is open and nothing is selected, select the first item
+    if M.visible() then
+      return vim.keycode "<C-n><C-y>"
+    end
+    -- Else, default
+    return key
+  end, { expr = true })
+
+  -- Special <CR> behavior if it's not a default confirm key
+  if key ~= vim.keycode "<CR>" then
+    vim.keymap.set("i", "<CR>", function()
+      -- If some item is selected, confirm selection
+      if vim.fn.complete_info().selected ~= -1 then
+        return vim.keycode "<C-y>"
+      end
+      -- If pmenu is open and nothing selected, close it then newline
+      if M.visible() then
+        return vim.keycode "<C-e><CR>"
+      end
+      -- Else, default
+      return vim.keycode "<CR>"
+    end, { expr = true })
+  end
+end
+
+M.mapping.select_next = function(key)
+  key = vim.keycode(key)
+  vim.keymap.set("i", key, function()
+    if M.visible() then
+      return vim.keycode "<C-n>"
+    end
+    return key
+  end, { expr = true })
+end
+
+M.mapping.select_prev = function(key)
+  key = vim.keycode(key)
+  vim.keymap.set("i", key, function()
+    if M.visible() then
+      return vim.keycode "<C-p>"
+    end
+    return key
+  end, { expr = true })
 end
 
 return M

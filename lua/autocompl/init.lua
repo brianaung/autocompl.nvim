@@ -1,5 +1,7 @@
 local M = {}
 
+M.configs = {}
+
 M.states = {
   confirm_done = false,
 }
@@ -22,19 +24,48 @@ M.setup = function()
   end
 
   -- Set options
-  vim.opt.completeopt = { "menuone", "popup", "noinsert" }
+  vim.opt.completeopt = { "menuone", "popup", "noselect" }
   vim.opt.shortmess:append "c"
 
   -- Listen to confirm key pressed event
   vim.on_key(function(key)
-    if vim.fn.pumvisible() == 1 and vim.keycode "<C-y>" == key then
+    if vim.fn.pumvisible() ~= 1 then
+      return
+    end
+
+    if key == vim.keycode "<C-y>" or key == vim.keycode "<Space>" then
       M.states.confirm_done = true
     end
   end, 0)
 
-  -- Set keybindings
+  -- Enter key behavior
+  -- TODO might need to refactor this if I am going to support custom keybindings
   vim.keymap.set("i", "<CR>", function()
-    return vim.fn.pumvisible() == 1 and vim.keycode "<C-e><CR>" or vim.keycode "<CR>"
+    -- If some item is selected, confirm selection
+    if vim.fn.complete_info().selected ~= -1 then
+      return vim.keycode "<C-y>"
+    end
+    -- If pmenu is open and nothing selected, close it then newline
+    if vim.fn.pumvisible() == 1 then
+      return vim.keycode "<C-e><CR>"
+    end
+    -- Else, default
+    return vim.keycode "<CR>"
+  end, { expr = true })
+
+  -- Confirm key behavior
+  -- Auto confirm first item on <C-y>
+  vim.keymap.set("i", "<C-y>", function()
+    -- If some item is selected, confirm selection
+    if vim.fn.complete_info().selected ~= -1 then
+      return vim.keycode "<C-y>"
+    end
+    -- If pmenu is open and nothing is selected, select the first item
+    if vim.fn.pumvisible() == 1 then
+      return vim.keycode "<C-n><C-y>"
+    end
+    -- Else, default
+    return vim.keycode "<C-y>"
   end, { expr = true })
 
   -- LS Keybindings
@@ -59,7 +90,7 @@ M.create_autocmds = function()
     vim.api.nvim_create_autocmd(event, { group = augroup, callback = callback, desc = desc })
   end
   -- Define autocommands
-  au("LspAttach", M.set_completefunc, "Update completefunc if LSP client is available")
+  au("LspAttach", M.set_completefunc, "Set completefunc if LSP client is available")
   au("InsertCharPre", M.trigger_completion, "Auto trigger completion")
   au("CompleteDonePre", M.expand_snippet, "Expand snippet completion if confirm_done")
 end

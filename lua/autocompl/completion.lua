@@ -1,6 +1,5 @@
 local util = require "autocompl.util"
 
-SENT = "lsp_request_sent"
 DONE = "lsp_request_done"
 RECEIVED = "lsp_request_received"
 
@@ -23,41 +22,48 @@ end
 
 AutoCompl = {}
 AutoCompl.lspfunc = function(findstart, base)
-  -- No lsp client or request has been sent
-  if not M.has_lsp_clients() or M.lsp.status == SENT then
+  -- No lsp client
+  if not M.has_lsp_clients() then
     return findstart == 1 and -3 or {}
   end
   if M.lsp.status ~= RECEIVED then
-    M.lsp.status = SENT
-    vim.lsp.buf_request_all(0, "textDocument/completion", vim.lsp.util.make_position_params(), function(results)
-      for client_id, response in pairs(results) do
-        if response.err or not response.result then
-          return {}
+    if M.lsp.cancel_fn then
+      M.lsp.cancel_fn()
+    end
+    M.lsp.cancel_fn = vim.lsp.buf_request_all(
+      0,
+      "textDocument/completion",
+      vim.lsp.util.make_position_params(),
+      function(results)
+        for client_id, response in pairs(results) do
+          if response.err or not response.result then
+            return {}
+          end
+          local items = vim.tbl_get(response.result, "items") or response.result
+          if type(items) ~= "table" then
+            return {}
+          end
+          items = M.process_items(items, base)
+          for _, item in pairs(response.result.items) do
+            table.insert(M.lsp.result, {
+              word = vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "",
+              abbr = item.label,
+              kind = vim.lsp.protocol.CompletionItemKind[item.kind] or "Unknown",
+              menu = item.detail or "",
+              -- info = info,
+              icase = 1,
+              dup = 1,
+              empty = 1,
+              user_data = {
+                nvim = { lsp = { completion_item = item, client_id = client_id } },
+              },
+            })
+          end
         end
-        local items = vim.tbl_get(response.result, "items") or response.result
-        if type(items) ~= "table" then
-          return {}
-        end
-        items = M.process_items(items, base)
-        for _, item in pairs(response.result.items) do
-          table.insert(M.lsp.result, {
-            word = vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "",
-            abbr = item.label,
-            kind = vim.lsp.protocol.CompletionItemKind[item.kind] or "Unknown",
-            menu = item.detail or "",
-            -- info = info,
-            icase = 1,
-            dup = 1,
-            empty = 1,
-            user_data = {
-              nvim = { lsp = { completion_item = item, client_id = client_id } },
-            },
-          })
-        end
+        M.lsp.status = RECEIVED
+        M.trigger_completion()
       end
-      M.lsp.status = RECEIVED
-      M.trigger_completion()
-    end)
+    )
     return findstart == 1 and -3 or {}
   end
   if findstart == 1 then

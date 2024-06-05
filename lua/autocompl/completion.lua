@@ -44,7 +44,7 @@ AutoCompl.lspfunc = function(findstart, base)
             return {}
           end
           items = M.process_items(items, base)
-          for _, item in pairs(response.result.items) do
+          for _, item in pairs(items) do
             table.insert(M.lsp.result, {
               word = vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "",
               abbr = item.label,

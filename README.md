@@ -7,8 +7,8 @@
     - [x] Native LSP.
     - [x] Buffer fallback
 - [x] Custom keymappings.
-- [x] Basic fuzzy search.
-- [ ] Snippet expansion
+- [x] Basic fuzzy match.
+- [x] Basic snippet expansion
 - [ ] Info preview window.
 - [ ] Additional text edits (e.g. automatic imports).
 
@@ -18,9 +18,11 @@
 - [ ] Certain keymaps like `<C-n>` and `<C-p>` does not work when setting as confirm key.
 
 ### Future roadmap
-- [ ] More advanced fuzzy search.
+- [ ] More advanced fuzzy match.
 - [ ] Signature help.
-- [ ] Builtin snippet expansion (no extra dependencies).
+- [ ] Advanced snippet expansion.
+    - [ ] Support custom snippet expand function
+    - [ ] Keymaps to jump around like luasnip
 
 ### ~Similar~ Better alternatives
 - [nvim-cmp](https://github.com/hrsh7th/nvim-cmp)

@@ -35,32 +35,8 @@ AutoCompl.lspfunc = function(findstart, base)
       0,
       "textDocument/completion",
       vim.lsp.util.make_position_params(),
-      function(results)
-        for client_id, response in pairs(results) do
-          if response.err or not response.result then
-            return {}
-          end
-          local items = vim.tbl_get(response.result, "items") or response.result
-          if type(items) ~= "table" then
-            return {}
-          end
-          items = M.process_items(items, base)
-          for _, item in pairs(items) do
-            table.insert(M.lsp.result, {
-              word = vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "",
-              abbr = item.label,
-              kind = vim.lsp.protocol.CompletionItemKind[item.kind] or "Unknown",
-              menu = item.detail or "",
-              -- info = info,
-              icase = 1,
-              dup = 1,
-              empty = 1,
-              user_data = {
-                nvim = { lsp = { completion_item = item, client_id = client_id } },
-              },
-            })
-          end
-        end
+      function(result)
+        M.lsp.result = result
         M.lsp.status = RECEIVED
         M.trigger_completion()
       end
@@ -73,8 +49,34 @@ AutoCompl.lspfunc = function(findstart, base)
     local start = vim.fn.match(line:sub(1, pos[2]), "\\k*$")
     return start
   end
-  local words = M.lsp.result
-  M.lsp.result = {}
+  local words = {}
+  for client_id, response in pairs(M.lsp.result) do
+    if response.err or not response.result then
+      return {}
+    end
+    local items = vim.tbl_get(response.result, "items") or response.result
+    items = M.process_items(items, base)
+    if type(items) ~= "table" then
+      return {}
+    end
+    for _, item in pairs(items) do
+      table.insert(words, {
+        word = vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "",
+        abbr = item.label,
+        kind = vim.lsp.protocol.CompletionItemKind[item.kind] or "Unknown",
+        menu = item.detail or "",
+        -- info = info,
+        icase = 1,
+        dup = 1,
+        empty = 1,
+        user_data = {
+          nvim = { lsp = { completion_item = item, client_id = client_id } },
+        },
+      })
+    end
+  end
+
+  -- M.lsp.result = {}
   M.lsp.status = DONE
   return words
 end

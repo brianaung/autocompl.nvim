@@ -7,10 +7,11 @@ local M = {}
 M.lsp = { status = DONE, result = {} }
 
 M.process_items = function(items, base)
+  vim.print(items)
   local res = vim.tbl_filter(function(item)
-    -- Keep items which match the base and are not snippets
+    -- Keep items which match (or fuzzy match) the base
     local text = item.filterText or (vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "")
-    return vim.startswith(text, base) and item.kind ~= 15
+    return (vim.startswith(text, base)) or (not vim.tbl_isempty(vim.fn.matchfuzzy({ text }, base)))
   end, items)
 
   table.sort(res, function(a, b)

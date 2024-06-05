@@ -16,7 +16,7 @@ M.setup = function()
 
   -- Define autocommands
   util.au("LspAttach", completion.set_completefunc, "Set completefunc if LSP client is available")
-  util.au("InsertCharPre", completion.trigger, "Start auto completion with a debounce")
+  util.au("InsertCharPre", completion.trigger_completion, "Start auto completion with a debounce")
 end
 
 return M

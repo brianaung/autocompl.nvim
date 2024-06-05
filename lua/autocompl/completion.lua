@@ -7,7 +7,6 @@ local M = {}
 M.lsp = { status = DONE, result = {} }
 
 M.process_items = function(items, base)
-  vim.print(items)
   local res = vim.tbl_filter(function(item)
     -- Keep items which match (or fuzzy match) the base
     local text = item.filterText or (vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "")

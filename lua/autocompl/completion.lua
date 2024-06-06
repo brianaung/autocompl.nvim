@@ -4,7 +4,9 @@ DONE = "lsp_request_done"
 RECEIVED = "lsp_request_received"
 
 local M = {}
-M.lsp = { status = DONE, result = {} }
+
+M.lsp = { status = DONE, result = {}, resolved = {} }
+M.ns_id = vim.api.nvim_create_namespace "AutoCompl"
 
 M.process_items = function(items, base)
   local res = vim.tbl_filter(function(item)
@@ -123,6 +125,63 @@ end
 M.has_lsp_clients = function()
   local clients = vim.lsp.get_clients { bufnr = 0, method = "textDocument/completion" }
   return not vim.tbl_isempty(clients)
+end
+
+M.apply_additional_text_edits = function()
+  local lsp_data = vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp")
+  if lsp_data == nil or vim.tbl_isempty(lsp_data) then
+    return
+  end
+
+  local completion_item = lsp_data.completion_item
+
+  if completion_item then
+    vim.lsp.buf_request_all(0, "completionItem/resolve", completion_item, function(result)
+      M.lsp.resolved = result
+    end)
+    local res = {}
+    for client_id, response in pairs(M.lsp.resolved) do
+      if not response.err and response.result then
+        vim.list_extend(res, { edits = response.result.additionalTextEdits, client_id = client_id })
+      end
+    end
+    local edits, client_id
+    if #res >= 1 then
+      edits = res[1].edits
+      client_id = res[1].client_id or 0
+    else
+      edits = completion_item.additionalTextEdits
+      client_id = lsp_data.client_id or 0
+    end
+
+    if edits then
+      local cur_pos = vim.api.nvim_win_get_cursor(0)
+      local extmark_id = vim.api.nvim_buf_set_extmark(0, M.ns_id, cur_pos[1] - 1, cur_pos[2], {})
+
+      local offset_encoding = vim.lsp.get_client_by_id(client_id).offset_encoding
+      vim.lsp.util.apply_text_edits(edits, vim.api.nvim_get_current_buf(), offset_encoding)
+
+      local extmark_data = vim.api.nvim_buf_get_extmark_by_id(0, M.ns_id, extmark_id, {})
+      pcall(vim.api.nvim_buf_del_extmark, 0, M.ns_id, extmark_id)
+      pcall(vim.api.nvim_win_set_cursor, 0, { extmark_data[1] + 1, extmark_data[2] })
+    end
+  end
+end
+
+M.expand_snippet = function()
+  local completion_item = vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp", "completion_item") or {}
+
+  -- do nth it's not a lsp completion or not a snippet
+  if vim.tbl_isempty(completion_item) or completion_item.kind ~= 15 then
+    return
+  end
+
+  local row = vim.api.nvim_win_get_cursor(0)[1]
+  local col = vim.api.nvim_win_get_cursor(0)[2]
+  vim.api.nvim_buf_set_text(0, row - 1, col - #vim.v.completed_item.word, row - 1, col, { "" })
+  vim.api.nvim_win_set_cursor(0, { row, col - vim.fn.strwidth(vim.v.completed_item.word) })
+
+  vim.snippet.expand(vim.tbl_get(completion_item, "textEdit", "newText") or completion_item.insertText or "")
 end
 
 return M

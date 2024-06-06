@@ -63,12 +63,16 @@ AutoCompl.lspfunc = function(findstart, base)
       return {}
     end
     for _, item in pairs(items) do
+      local success, info = pcall(function()
+        return type(item.documentation) == "string" and item.documentation
+          or (vim.tbl_get(item.documentation, "value") or "")
+      end)
       table.insert(words, {
         word = vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "",
         abbr = item.label,
         kind = vim.lsp.protocol.CompletionItemKind[item.kind] or "Unknown",
         menu = item.detail or "",
-        -- info = info,
+        info = success and info or "",
         icase = 1,
         dup = 1,
         empty = 1,

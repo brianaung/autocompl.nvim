@@ -48,6 +48,9 @@ AutoCompl.lspfunc = function(findstart, base)
     local start = vim.fn.match(line:sub(1, pos[2]), "\\k*$")
     return start
   end
+  -- Important: status needs to be done whether we return words or {}
+  M.lsp.status = DONE
+
   local words = {}
   for client_id, response in pairs(M.lsp.result) do
     if response.err or not response.result then
@@ -75,8 +78,6 @@ AutoCompl.lspfunc = function(findstart, base)
     end
   end
 
-  -- M.lsp.result = {}
-  M.lsp.status = DONE
   return words
 end
 

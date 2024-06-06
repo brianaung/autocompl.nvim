@@ -27,9 +27,10 @@ AutoCompl.lspfunc = function(findstart, base)
     return findstart == 1 and -3 or {}
   end
   if M.lsp.status ~= RECEIVED then
-    if M.lsp.cancel_fn then
-      M.lsp.cancel_fn()
-    end
+    -- TODO find a better way to cancel pending requests, and also cleaning up result table
+    -- if M.lsp.cancel_fn then
+    --   M.lsp.cancel_fn()
+    -- end
     M.lsp.cancel_fn = vim.lsp.buf_request_all(
       0,
       "textDocument/completion",
@@ -106,7 +107,8 @@ M.trigger_lsp = function()
 end
 
 M.trigger_fallback = function()
-  vim.api.nvim_feedkeys(util.k "<C-x><C-n>", "m", false)
+  -- vim.api.nvim_feedkeys(util.k "<C-x><C-n>", "m", false)
+  vim.api.nvim_feedkeys(util.k "<C-x><C-i>", "m", false)
 end
 
 M.set_completefunc = function(e)

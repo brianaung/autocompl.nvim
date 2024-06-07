@@ -72,12 +72,14 @@ AutoCompl.lspfunc = function(findstart, base)
   local words = {}
   for client_id, response in pairs(M.lsp.result) do
     if response.err or not response.result then
-      return {}
+      -- return {}
+      goto continue
     end
     local items = vim.tbl_get(response.result, "items") or response.result
     items = M.process_items(items, base)
     if type(items) ~= "table" then
-      return {}
+      -- return {}
+      goto continue
     end
     for _, item in pairs(items) do
       local success, info = pcall(function()
@@ -98,6 +100,7 @@ AutoCompl.lspfunc = function(findstart, base)
         },
       })
     end
+    ::continue::
   end
 
   return words

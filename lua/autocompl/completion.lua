@@ -8,18 +8,33 @@ local M = {}
 M.lsp = { status = DONE, result = {}, resolved = {} }
 M.ns_id = vim.api.nvim_create_namespace "AutoCompl"
 
+-- TODO: needs to revise the whole algorithm for better matching (better fuzzy, casing, etc.) and ranking
 M.process_items = function(items, base)
-  local res = vim.tbl_filter(function(item)
-    -- Keep items which match (or fuzzy match) the base
+  local res = {}
+  for _, item in pairs(items) do
     local text = item.filterText or (vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "")
-    return (vim.startswith(text, base)) or (not vim.tbl_isempty(vim.fn.matchfuzzy({ text }, base)))
-  end, items)
+    if vim.startswith(text, base:sub(1, 1)) then
+      local score = vim.fn.matchfuzzypos({ text }, base)[3]
+      if not vim.tbl_isempty(score) then
+        vim.list_extend(res, { { score = score[1], item = item } })
+      end
+    end
+  end
 
   table.sort(res, function(a, b)
-    return (a.sortText or a.label) < (b.sortText or b.label)
+    return a.score > b.score
   end)
 
-  return res
+  table.sort(res, function(a, b)
+    return (a.item.sortText or a.item.label) < (b.item.sortText or b.item.label)
+  end)
+
+  local ret = {}
+  for _, item in ipairs(res) do
+    vim.list_extend(ret, { item.item })
+  end
+
+  return ret
 end
 
 AutoCompl = {}
@@ -142,7 +157,7 @@ M.apply_additional_text_edits = function()
     local res = {}
     for client_id, response in pairs(M.lsp.resolved) do
       if not response.err and response.result then
-        vim.list_extend(res, { edits = response.result.additionalTextEdits, client_id = client_id })
+        vim.list_extend(res, { { edits = response.result.additionalTextEdits, client_id = client_id } })
       end
     end
     local edits, client_id

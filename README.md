@@ -16,6 +16,9 @@
 - [x] Keep completion suggestion window when deleting text
     - Fixed: had to rewrite my own lsp complete_func since vim.lsp.omnifunc uses vim.fn.complete() which [disappear when pressing backspace.](https://github.com/neovim/neovim/pull/24661#issuecomment-1764712654).
 - [ ] Certain keymaps like `<C-n>` and `<C-p>` does not work when setting as confirm key.
+- [ ] Completion not showing up when using in buffers with multiple clients attached.
+- [x] Some language servers returning incorrect completion items on first character.
+    - Improved process_items function with better match scoring.
 
 ### Future roadmap
 - [ ] More advanced fuzzy match.

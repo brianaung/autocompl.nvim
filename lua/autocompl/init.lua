@@ -15,8 +15,12 @@ M.status_code = {
 M.cmp = {
   timer = vim.uv.new_timer(),
   status = M.status_code.COMPLETED,
-  result = {},
-  resolved = {},
+  responses = {},
+}
+
+M.info = {
+  timer = vim.uv.new_timer(),
+  responses = {},
 }
 
 function AutoCompl.setup()
@@ -45,6 +49,16 @@ function AutoCompl.setup()
     M.expand_snippet()
     M.apply_additional_text_edits()
   end, "Perform extra edits on complete done pre")
+  -- TODO info window
+  -- util.au(
+  --   "CompleteChanged",
+  --   util.debounce(M.info.timer, 150, function()
+  --     if util.pumvisible() then
+  --       vim.lsp.util.open_floating_preview(vim.lsp.util.convert_input_to_markdown_lines "```lua\nfunction()\nend```")
+  --     end
+  --   end),
+  --   "Testing"
+  -- )
 
   -- On key pressed commands
   vim.on_key(function(key, _)
@@ -71,9 +85,9 @@ function M.completefunc(findstart, base)
   end
   if M.cmp.status ~= M.status_code.RECEIVED then
     M.cmp.status = M.status_code.SENT
-    vim.lsp.buf_request_all(0, "textDocument/completion", vim.lsp.util.make_position_params(), function(result)
+    vim.lsp.buf_request_all(0, "textDocument/completion", vim.lsp.util.make_position_params(), function(responses)
       M.cmp.status = M.status_code.RECEIVED
-      M.cmp.result = result
+      M.cmp.responses = responses
       M.trigger_completion()
     end)
     return findstart == 1 and -3 or {}
@@ -88,7 +102,7 @@ function M.completefunc(findstart, base)
   M.cmp.status = M.status_code.COMPLETED
 
   local words = {}
-  for client_id, response in pairs(M.cmp.result) do
+  for client_id, response in pairs(M.cmp.responses) do
     if response.err or not response.result then
       goto continue
     end
@@ -169,12 +183,12 @@ M.apply_additional_text_edits = function()
     return
   end
 
-  vim.lsp.buf_request_all(0, "completionItem/resolve", completion_item, function(result)
-    M.cmp.resolved = result
+  vim.lsp.buf_request_all(0, "completionItem/resolve", completion_item, function(responses)
+    M.info.responses = responses
   end)
 
   local res = {}
-  for client_id, response in pairs(M.cmp.resolved) do
+  for client_id, response in pairs(M.info.responses) do
     if not response.err and response.result then
       vim.list_extend(res, { { edits = response.result.additionalTextEdits, client_id = client_id } })
     end

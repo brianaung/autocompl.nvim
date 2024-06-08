@@ -1,5 +1,10 @@
 local M = {}
 
+M.has_lsp_clients = function()
+  local clients = vim.lsp.get_clients { bufnr = 0, method = "textDocument/completion" }
+  return not vim.tbl_isempty(clients)
+end
+
 M.k = function(key)
   return vim.api.nvim_replace_termcodes(key, true, false, true)
 end
@@ -25,6 +30,14 @@ end
 
 M.pumvisible = function()
   return vim.fn.pumvisible() > 0
+end
+
+M.insertmode = function()
+  return vim.fn.mode() == "i"
+end
+
+M.normalbuf = function()
+  return vim.api.nvim_get_option_value("buftype", { buf = 0 }) == ""
 end
 
 return M

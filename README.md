@@ -20,6 +20,7 @@
 - [x] Some language servers returning incorrect completion items on first character.
     - Fixed: Improved process_items function with better match scoring.
 - [ ] Certain keymaps like `<C-n>` and `<C-p>` does not work when setting as confirm key.
+- [ ] Completion triggered when pressed backspace, but it shouldn't make any suggestions when "base" value is empty
 
 ### Future roadmap
 - [ ] More advanced fuzzy match.

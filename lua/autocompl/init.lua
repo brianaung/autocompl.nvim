@@ -7,8 +7,9 @@ local AutoCompl = {}
 M.ns_id = vim.api.nvim_create_namespace "AutoCompl"
 
 M.status_code = {
-  COMPLETED = "lsp_request_completed",
+  SENT = "lsp_request_sent",
   RECEIVED = "lsp_request_received",
+  COMPLETED = "lsp_request_completed",
 }
 
 M.cmp = {
@@ -44,6 +45,13 @@ function AutoCompl.setup()
     M.expand_snippet()
     M.apply_additional_text_edits()
   end, "Perform extra edits on complete done pre")
+
+  -- On key pressed commands
+  vim.on_key(function(key, _)
+    if key == util.k "<BS>" then
+      M.trigger_completion()
+    end
+  end, M.ns_id)
 end
 
 function M.trigger_completion()
@@ -58,10 +66,11 @@ function M.trigger_completion()
 end
 
 function M.completefunc(findstart, base)
-  if not util.has_lsp_clients() then
+  if not util.has_lsp_clients() or M.cmp.status == M.status_code.SENT then
     return findstart == 1 and -3 or {}
   end
   if M.cmp.status ~= M.status_code.RECEIVED then
+    M.cmp.status = M.status_code.SENT
     vim.lsp.buf_request_all(0, "textDocument/completion", vim.lsp.util.make_position_params(), function(result)
       M.cmp.status = M.status_code.RECEIVED
       M.cmp.result = result
@@ -113,15 +122,22 @@ function M.completefunc(findstart, base)
   return words
 end
 
--- TODO: needs to revise the whole algorithm for better matching (better fuzzy, casing, etc.) and ranking
 M.process_items = function(items, base)
   local res = {}
   for _, item in pairs(items) do
     local text = item.filterText or (vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "")
+
+    if not base:match "%u" then
+      text = text:lower()
+      base = base:lower()
+    end
+
     if vim.startswith(text, base:sub(1, 1)) then
       local score = vim.fn.matchfuzzypos({ text }, base)[3]
       if not vim.tbl_isempty(score) then
         vim.list_extend(res, { { score = score[1], item = item } })
+      else
+        vim.list_extend(res, { { score = 0, item = item } })
       end
     end
   end

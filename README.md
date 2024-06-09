@@ -6,28 +6,28 @@
 - [x] Native LSP completion source with a fallback.
     - [x] Native LSP.
     - [x] Buffer fallback
-- [x] Custom keymappings.
 - [x] Basic fuzzy match.
 - [x] Basic snippet expansion
-- [x] Additional text edits (e.g. automatic imports).
+- [x] Additional (synchronous) text edits (e.g. automatic imports).
 - [ ] Info preview window.
+- [ ] Expose configuration options.
+    - [x] Custom keymappings.
+    - [ ] Completion debounce waiting time.
+    - [ ] Additional text edits request max blocking timeout.
+    - [ ] Enable/disable info window.
+    - [ ] Custom fallback completion.
+    - [ ] Custom snippet expansion.
 
 #### Known bugs
-- [x] Keep completion suggestion window when deleting text
-    - Fixed: implemented a custom LSP completefunc, since vim.lsp.omnifunc uses vim.fn.complete() which [disappear when pressing backspace.](https://github.com/neovim/neovim/pull/24661#issuecomment-1764712654).
-- [x] Completion not showing up when using in buffers with multiple clients attached.
-    - Fixed: Process items for all clients.
-- [x] Some language servers returning incorrect completion items on first character.
-    - Fixed: Improved process_items function with better match scoring.
 - [ ] Certain keymaps like `<C-n>` and `<C-p>` does not work when setting as confirm key.
-- [ ] Completion triggered when pressed backspace, but it shouldn't make any suggestions when "base" value is empty
 
 ### Future roadmap
-- [ ] More advanced fuzzy match.
 - [ ] Signature help.
+- [ ] More advanced fuzzy match.
 - [ ] Advanced snippet expansion.
     - [ ] Support custom snippet expand function
     - [ ] Keymaps to jump around like luasnip
+- [ ] Better highlighting
 
 ### ~Similar~ Better alternatives
 - [nvim-cmp](https://github.com/hrsh7th/nvim-cmp)

@@ -16,6 +16,13 @@ M.cmp = {
   timer = vim.uv.new_timer(),
   status = M.status_code.COMPLETED,
   responses = {},
+  cancel_fn = nil,
+  cancel_resolved_fn = nil,
+}
+
+M.info = {
+  timer = vim.uv.new_timer(),
+  winid = nil,
 }
 
 function AutoCompl.setup()
@@ -32,15 +39,10 @@ function AutoCompl.setup()
   }
 
   -- Define autocommands
-  util.au({ "BufEnter", "LspAttach" }, M.setup_completefunc, "Start auto completion with a debounce")
-  util.au(
-    "InsertCharPre",
-    util.debounce(M.cmp.timer, 150, M.trigger_completion),
-    "Start auto completion with a debounce"
-  )
-  util.au("CompleteDonePre", function()
-    M.expand_snippet()
-  end, "Additional text edits on after completion is done")
+  util.au({ "BufEnter", "LspAttach" }, M.setup_completefunc, "")
+  util.au("InsertCharPre", util.debounce(M.cmp.timer, 150, M.trigger_completion), "")
+  util.au("CompleteChanged", util.debounce(M.info.timer, 150, M.trigger_info), "")
+  util.au("CompleteDonePre", M.on_completedonepre, "")
 end
 
 function M.setup_completefunc(e)
@@ -86,6 +88,10 @@ end
 
 function M.make_completion_request()
   M.cmp.status = M.status_code.SENT
+  if M.cmp.cancel_fn then
+    pcall(M.cmp.cancel_fn)
+    M.cmp.cancel_fn = nil
+  end
   M.cmp.cancel_fn = vim.lsp.buf_request_all(
     0,
     "textDocument/completion",
@@ -117,7 +123,7 @@ function M.process_completion_response(base)
       table.insert(words, {
         word = vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "",
         abbr = item.label,
-        menu = item.detail or "",
+        -- menu = item.detail or "",
         info = success and info or "",
         kind = vim.lsp.protocol.CompletionItemKind[item.kind] or "Unknown",
         icase = 1,
@@ -133,7 +139,7 @@ function M.process_completion_response(base)
   return words
 end
 
-M.process_completion_items = function(items, base)
+function M.process_completion_items(items, base)
   local matched_items = {}
   for _, item in pairs(items) do
     local text = item.filterText or (vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "")
@@ -169,7 +175,94 @@ M.process_completion_items = function(items, base)
   return res
 end
 
-M.expand_snippet = function()
+function M.on_completedonepre()
+  M.expand_snippet()
+  M.apply_additional_text_edits()
+end
+
+-- TODO show info window
+function M.trigger_info()
+  if M.info.winid then
+    pcall(vim.api.nvim_win_close, M.info.winid, false)
+    M.info.winid = nil
+  end
+  M.make_resolved_request(function(res)
+    local documentation = res.item.documentation or {}
+    local success, info = pcall(function()
+      return type(documentation) == "string" and documentation or (vim.tbl_get(documentation, "value") or "")
+    end)
+    if not success then
+      return
+    end
+    -- _, M.info.winid = vim.lsp.util.open_floating_preview(vim.lsp.util.convert_input_to_markdown_lines(info) or {})
+  end, true)
+end
+
+function M.make_resolved_request(processor, async)
+  local lsp_data = vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp") or {}
+  local client_id, completion_item = lsp_data.client_id or 0, lsp_data.completion_item or {}
+  if vim.tbl_isempty(completion_item) then
+    return
+  end
+
+  if async then
+    if M.cmp.cancel_resolved_fn then
+      pcall(M.cmp.cancel_resolved_fn)
+      M.cmp.cancel_resolved_fn = nil
+    end
+    M.cmp.cancel_resolved_fn = vim.lsp.buf_request_all(0, "completionItem/resolve", completion_item, function(responses)
+      local res = {}
+      for resolved_client_id, response in pairs(responses) do
+        if not response.err and response.result then
+          vim.list_extend(res, { { client_id = resolved_client_id, item = response.result } })
+        end
+      end
+      if #res >= 1 then
+        processor(res[1])
+      else
+        processor { client_id = client_id, item = completion_item }
+      end
+    end)
+  else
+    local responses = vim.lsp.buf_request_sync(0, "completionItem/resolve", completion_item, 1000)
+    local res = {}
+    for resolved_client_id, response in pairs(responses) do
+      if not response.err and response.result then
+        vim.list_extend(res, { { client_id = resolved_client_id, item = response.result } })
+      end
+    end
+    if #res >= 1 then
+      processor(res[1])
+    else
+      processor { client_id = client_id, item = completion_item }
+    end
+  end
+end
+
+-- `additionalTextEdits` can come from either completion_item or from "resolved" completion_item.
+-- When getting the "resolved" item, the request needs to be *synchronous* because:
+-- - 1. you won't be able to access the responses value outside the request since you need to "await" for the request to finish.
+-- - 2. and if you try to apply text edits inside the async request callback, vim's undo/redo after applying edits can get messed up.
+-- (Making the request on every CompleteChanged event somewhat works, and I need to make that request for info window anyway. However, if you try to
+-- very quickly select and complete an item, the `additionalTextEdits` value might not be what you expects.)
+function M.apply_additional_text_edits()
+  M.make_resolved_request(function(res)
+    local edits = res.item.additionalTextEdits or {}
+    local client_id = res.client_id or 0
+    if vim.tbl_isempty(edits) then
+      return
+    end
+    local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+    local extmark_id = vim.api.nvim_buf_set_extmark(0, M.ns_id, row - 1, col, {})
+    local offset_encoding = vim.lsp.get_client_by_id(client_id).offset_encoding
+    vim.lsp.util.apply_text_edits(edits, vim.api.nvim_get_current_buf(), offset_encoding)
+    local extmark_row, extmark_col = unpack(vim.api.nvim_buf_get_extmark_by_id(0, M.ns_id, extmark_id, {}))
+    pcall(vim.api.nvim_buf_del_extmark, 0, M.ns_id, extmark_id)
+    pcall(vim.api.nvim_win_set_cursor, 0, { extmark_row + 1, extmark_col })
+  end, false)
+end
+
+function M.expand_snippet()
   local completion_item = vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp", "completion_item") or {}
   -- not a lsp completion or not a snippet
   if vim.tbl_isempty(completion_item) or completion_item.kind ~= 15 then

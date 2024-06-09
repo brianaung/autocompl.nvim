@@ -4,6 +4,13 @@ local util = require "autocompl.util"
 local M = {}
 local AutoCompl = {}
 
+M.opts = {
+  max_info_height = 25,
+  max_info_width = 80,
+  debounce_timeout = 150,
+  request_timeout = 1000,
+}
+
 M.ns_id = vim.api.nvim_create_namespace "AutoCompl"
 
 M.status_code = {
@@ -23,6 +30,7 @@ M.cmp = {
 M.info = {
   timer = vim.uv.new_timer(),
   winid = nil,
+  event = nil,
 }
 
 function AutoCompl.setup()
@@ -32,6 +40,11 @@ function AutoCompl.setup()
   vim.opt.completeopt = { "menuone", "noselect", "noinsert" }
   vim.opt.shortmess:append "c"
 
+  -- Create a permanent scratch buffer for info window
+  M.info.bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(M.info.bufnr, "AutoCompl:info-window")
+  vim.fn.setbufvar(M.info.bufnr, "&buftype", "nofile")
+
   mapping.bind_keys {
     ["<C-y>"] = mapping.confirm,
     ["<C-n>"] = mapping.select_next,
@@ -40,8 +53,8 @@ function AutoCompl.setup()
 
   -- Define autocommands
   util.au({ "BufEnter", "LspAttach" }, M.setup_completefunc, "")
-  util.au("InsertCharPre", util.debounce(M.cmp.timer, 150, M.trigger_completion), "")
-  util.au("CompleteChanged", util.debounce(M.info.timer, 150, M.trigger_info), "")
+  util.au("InsertCharPre", util.debounce(M.cmp.timer, M.opts.debounce_timeout, M.trigger_completion), "")
+  util.au("CompleteChanged", util.debounce(M.info.timer, M.opts.debounce_timeout, M.trigger_info), "")
   util.au("CompleteDonePre", M.on_completedonepre, "")
 end
 
@@ -176,17 +189,21 @@ function M.process_completion_items(items, base)
 end
 
 function M.on_completedonepre()
+  M.close_infowindow()
   M.expand_snippet()
   M.apply_additional_text_edits()
 end
 
 -- TODO show info window
 function M.trigger_info()
-  if M.info.winid then
-    pcall(vim.api.nvim_win_close, M.info.winid, false)
-    M.info.winid = nil
+  M.close_infowindow()
+
+  if not util.pumvisible() or not util.insertmode() then
+    return
   end
+
   M.make_resolved_request(function(res)
+    -- Get resolved info ==========
     local documentation = res.item.documentation or {}
     local success, info = pcall(function()
       return type(documentation) == "string" and documentation or (vim.tbl_get(documentation, "value") or "")
@@ -194,7 +211,58 @@ function M.trigger_info()
     if not success then
       return
     end
-    -- _, M.info.winid = vim.lsp.util.open_floating_preview(vim.lsp.util.convert_input_to_markdown_lines(info) or {})
+    -- Set lines in info window buffer ==========
+    local lines = vim.lsp.util.convert_input_to_markdown_lines(info) or {}
+    vim.lsp.util.stylize_markdown(M.info.bufnr, lines)
+    if vim.tbl_isempty(lines) then
+      return
+    end
+    -- Get info window options ==========
+    local lines_wrap = {}
+    for _, l in pairs(lines) do
+      vim.list_extend(lines_wrap, M.wrap_line(l, M.opts.max_info_width))
+    end
+    local height = math.min(#lines_wrap, M.opts.max_info_height)
+    -- Width is a maximum width of the first `height` wrapped lines truncated to
+    -- maximum width
+    local width = 0
+    local l_width
+    for i, l in ipairs(lines_wrap) do
+      l_width = vim.fn.strdisplaywidth(l)
+      if i <= height and width < l_width then
+        width = l_width
+      end
+    end
+    width = math.min(width, M.opts.max_info_width)
+
+    local event = vim.fn.pum_getpos()
+    local left_to_pum = event.col - 1
+    local right_to_pum = event.col + event.width + (event.scrollbar and 1 or 0)
+    local space_left = left_to_pum
+    local space_right = vim.o.columns - right_to_pum
+    -- Decide side at which info window will be displayed
+    local anchor, col, space
+    if width <= space_right or space_left <= space_right then
+      anchor, col, space = "NW", right_to_pum, space_right
+    else
+      anchor, col, space = "NE", left_to_pum, space_left
+    end
+
+    if space < M.opts.max_info_width then
+      width = math.min(width, space)
+    end
+    -- Open window ==========
+    M.info.winid = vim.api.nvim_open_win(M.info.bufnr, false, {
+      relative = "editor",
+      anchor = anchor,
+      row = event.row,
+      col = col,
+      width = width,
+      height = height,
+      focusable = false,
+      style = "minimal",
+      border = "none",
+    })
   end, true)
 end
 
@@ -224,7 +292,7 @@ function M.make_resolved_request(processor, async)
       end
     end)
   else
-    local responses = vim.lsp.buf_request_sync(0, "completionItem/resolve", completion_item, 1000)
+    local responses = vim.lsp.buf_request_sync(0, "completionItem/resolve", completion_item, M.opts.request_timeout)
     local res = {}
     for resolved_client_id, response in pairs(responses) do
       if not response.err and response.result then
@@ -272,6 +340,37 @@ function M.expand_snippet()
   vim.api.nvim_buf_set_text(0, row - 1, col - #vim.v.completed_item.word, row - 1, col, { "" })
   vim.api.nvim_win_set_cursor(0, { row, col - vim.fn.strwidth(vim.v.completed_item.word) })
   vim.snippet.expand(vim.tbl_get(completion_item, "textEdit", "newText") or completion_item.insertText or "")
+end
+
+function M.close_infowindow()
+  if M.info.winid then
+    pcall(vim.api.nvim_win_close, M.info.winid, false)
+    M.info.winid = nil
+  end
+end
+
+function M.wrap_line(l, width)
+  local res = {}
+
+  local success, width_id = true, nil
+  -- Use `strdisplaywidth()` to account for multibyte characters
+  while success and vim.fn.strdisplaywidth(l) > width do
+    -- Simulate wrap by looking at breaking character from end of current break
+    -- Use `pcall()` to handle complicated multibyte characters (like Chinese)
+    -- for which even `strdisplaywidth()` seems to return incorrect values.
+    success, width_id = pcall(vim.str_byteindex, l, width)
+
+    if success then
+      local break_match = vim.fn.match(l:sub(1, width_id):reverse(), "[- \t.,;:!?]")
+      -- If no breaking character found, wrap at whole width
+      local break_id = width_id - (break_match < 0 and 0 or break_match)
+      table.insert(res, l:sub(1, break_id))
+      l = l:sub(break_id + 1)
+    end
+  end
+  table.insert(res, l)
+
+  return res
 end
 
 return AutoCompl

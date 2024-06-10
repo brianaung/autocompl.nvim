@@ -1,14 +1,15 @@
+local core = require "autocompl.core"
 local util = require "autocompl.util"
 
 local M = {}
 
-M.bind_keys = function(keys)
+function M.bind_keys(keys)
   for key, fn in pairs(keys) do
     fn(key)
   end
 end
 
-M.confirm = function(key)
+function M.confirm(key)
   -- Default confirm key behavior
   vim.keymap.set("i", key, function()
     -- If item is selected
@@ -40,7 +41,7 @@ M.confirm = function(key)
   end
 end
 
-M.select_next = function(key)
+function M.select_next(key)
   key = util.k(key)
   vim.keymap.set("i", key, function()
     if util.pumvisible() then
@@ -50,7 +51,7 @@ M.select_next = function(key)
   end, { expr = true })
 end
 
-M.select_prev = function(key)
+function M.select_prev(key)
   key = util.k(key)
   vim.keymap.set("i", key, function()
     if util.pumvisible() then
@@ -58,6 +59,36 @@ M.select_prev = function(key)
     end
     return key
   end, { expr = true })
+end
+
+function M.scroll_docs_up(key)
+  key = util.k(key)
+  vim.keymap.set("i", key, function()
+    M.scroll_docs(-4)
+  end)
+end
+
+function M.scroll_docs_down(key)
+  key = util.k(key)
+  vim.keymap.set("i", key, function()
+    M.scroll_docs(4)
+  end)
+end
+
+-- https://github.com/hrsh7th/nvim-cmp/blob/main/lua/cmp/view/docs_view.lua#L130
+function M.scroll_docs(delta)
+  if core.info.winid then
+    local info = vim.fn.getwininfo(core.info.winid)[1] or {}
+    local top = info.topline or 1
+    top = top + delta
+    top = math.max(top, 1)
+    top = math.min(top, core.info.height - info.height + 1)
+    vim.schedule(function()
+      vim.api.nvim_win_call(core.info.winid, function()
+        vim.api.nvim_command("normal! " .. top .. "zt")
+      end)
+    end)
+  end
 end
 
 return M

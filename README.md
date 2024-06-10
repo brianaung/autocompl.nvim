@@ -20,6 +20,7 @@
 
 #### Known bugs
 - [ ] Certain keymaps like `<C-n>` and `<C-p>` does not work when setting as confirm key.
+- [ ] Certain keymaps like `<C-u>` does not work when setting as scroll docs key.
 
 ### Future roadmap
 - [ ] Signature help.

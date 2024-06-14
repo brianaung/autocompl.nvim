@@ -1,34 +1,20 @@
 # autocompl.nvim
-(WIP) A minimal auto completion plugin built on top of Vim's builtin insert-completion mechanism.
+A minimal and dependency-free auto-completion plugin built on top of Vim's builtin insert-completion mechanism.
 
-### Current roadmap
-- [x] Automatic code completion.
-- [x] Native LSP completion source with a fallback.
-    - [x] Native LSP.
-    - [x] Buffer fallback
-- [x] Basic fuzzy match.
-- [x] Basic snippet expansion
-- [x] Additional (synchronous) text edits (e.g. automatic imports).
-- [ ] Info preview window.
-- [ ] Expose configuration options.
-    - [x] Custom keymappings.
-    - [ ] Completion debounce waiting time.
-    - [ ] Additional text edits request max blocking timeout.
-    - [ ] Enable/disable info window.
-    - [ ] Custom fallback completion.
-    - [ ] Custom snippet expansion.
+### Features
+- Async automatic LSP completion, with a fallback to buffer text.
+- Info window for more completion item documentation.
+- Snippet expansion and jump support.
+- Fuzzy matching capabilities.
+- Apply additional text edits (e.g. auto-imports).
 
-#### Known bugs
+### WIP
+- [ ] More configuration options (keymaps, debounced timeouts, etc.)
+- [ ] Signature help window.
+- [ ] Improve highlighting (fuzzy matched chars, different info, etc.).
+
+### Known bugs
 - [ ] Certain keymaps like `<C-n>` and `<C-p>` does not work when setting as confirm key.
-- [ ] Certain keymaps like `<C-u>` does not work when setting as scroll docs key.
-
-### Future roadmap
-- [ ] Signature help.
-- [ ] More advanced fuzzy match.
-- [ ] Advanced snippet expansion.
-    - [ ] Support custom snippet expand function
-    - [ ] Keymaps to jump around like luasnip
-- [ ] Better highlighting
 
 ### ~Similar~ Better alternatives
 - [nvim-cmp](https://github.com/hrsh7th/nvim-cmp)

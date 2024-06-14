@@ -184,17 +184,13 @@ M.lsp_get_resolved_result = function(responses)
   return #results >= 1 and results[1] or {}
 end
 
-M.info_close = function()
-  pcall(vim.api.nvim_win_close, M.info.winid, false)
-  M.info.winid = nil
-end
-
 -- Needs to be debounced, or the info window will not close.
 M.info_start = M.debounce(M.info.timer, 100, function()
   M.info_close()
   -- Check whether to trigger another info window
   if vim.fn.pumvisible() == 0 then return end -- Pmenu is not visible
   if vim.fn.mode() ~= "i" then return end -- Not in insert mode
+  if vim.fn.complete_info()["selected"] == -1 then return end -- No items is selected
   -- Make resolved info request
   local lsp_data = vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp") or {}
   local _, completion_item = lsp_data.client_id or 0, lsp_data.completion_item or {}
@@ -205,6 +201,11 @@ M.info_start = M.debounce(M.info.timer, 100, function()
     M.info_window_open(res)
   end)
 end)
+
+M.info_close = function()
+  pcall(vim.api.nvim_win_close, M.info.winid, false)
+  M.info.winid = nil
+end
 
 -- Adapted from:
 -- https://github.com/echasnovski/mini.completion/blob/main/lua/mini/completion.lua#L911
@@ -219,12 +220,15 @@ M.info_window_open = function(res)
   vim.lsp.util.stylize_markdown(M.info.bufnr, lines)
   if vim.tbl_isempty(lines) then return end
   -- Open window ==========
-  M.info.winid = vim.api.nvim_open_win(M.info.bufnr, false, M.info_get_win_opts())
+  local win_opts = M.info_get_win_opts()
+  if vim.tbl_isempty(win_opts) then return end
+  M.info.winid = vim.api.nvim_open_win(M.info.bufnr, false, win_opts)
 end
 
 M.info_get_win_opts = function()
   -- Get positions relative pmenu
   local pumpos = vim.fn.pum_getpos()
+  if vim.tbl_isempty(pumpos) then return {} end
   local pum_left = pumpos.col - 1
   local pum_right = pumpos.col + pumpos.width + (pumpos.scrollbar and 1 or 0)
   local space_left = pum_left
@@ -232,11 +236,9 @@ M.info_get_win_opts = function()
   -- Choose the side to open win
   local anchor, col, space
   if space_left <= space_right then
-    anchor, col = "NW", pum_right
-    space = space_right
+    anchor, col, space = "NW", pum_right, space_right
   else
-    anchor, col = "NE", pum_left
-    space = space_left
+    anchor, col, space = "NE", pum_left, space_left
   end
   -- Calculate width (can grow to full space) and height
   local width, height = vim.lsp.util._make_floating_popup_size(vim.api.nvim_buf_get_lines(M.info.bufnr, 0, -1, false), {

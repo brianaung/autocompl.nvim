@@ -124,7 +124,39 @@ M.completion_process_responses = function(base, responses)
   return words
 end
 
-M.completion_process_items = function(items, base) return items end
+M.completion_process_items = function(items, base)
+  local matched_items = {}
+  for _, item in pairs(items) do
+    local text = item.filterText or (vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "")
+    -- If base only contains lower chars, do case-insensitive matching
+    if not base:match "%u" then
+      text = text:lower()
+      base = base:lower()
+    end
+    -- Fuzzy pattern matching and scoring
+    if vim.startswith(text, base:sub(1, 1)) then
+      local score = vim.fn.matchfuzzypos({ text }, base)[3]
+      if not vim.tbl_isempty(score) then
+        vim.list_extend(matched_items, { { score = score[1], item = item } })
+      else
+        vim.list_extend(matched_items, { { score = 0, item = item } })
+      end
+    end
+  end
+  -- Sort them based on the pattern matching scores
+  table.sort(matched_items, function(a, b) return a.score > b.score end)
+  -- Sort again based on LSP sortText
+  table.sort(
+    matched_items,
+    function(a, b) return (a.item.sortText or a.item.label) < (b.item.sortText or b.item.label) end
+  )
+  -- Flatten into items list
+  local res = {}
+  for _, item in ipairs(matched_items) do
+    vim.list_extend(res, { item.item })
+  end
+  return res
+end
 
 M.completion_get_words = function(items, client_id)
   local words = {}

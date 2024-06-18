@@ -124,6 +124,7 @@ M.completion_process_responses = function(base, responses)
   return words
 end
 
+-- TODO improve completion item matching algorithm, and better fuzzy search
 M.completion_process_items = function(items, base)
   local matched_items = {}
   for _, item in pairs(items) do
@@ -138,8 +139,6 @@ M.completion_process_items = function(items, base)
       local score = vim.fn.matchfuzzypos({ text }, base)[3]
       if not vim.tbl_isempty(score) then
         vim.list_extend(matched_items, { { score = score[1], item = item } })
-      else
-        vim.list_extend(matched_items, { { score = 0, item = item } })
       end
     end
   end
@@ -289,8 +288,10 @@ M.apply_additional_text_edits = function()
   local lsp_data = vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp") or {}
   local completion_item = lsp_data.completion_item or {}
   if vim.tbl_isempty(completion_item) then return end
+  -- make a synchronous request to get resolved info
   local responses = vim.lsp.buf_request_sync(0, "completionItem/resolve", completion_item, 1000)
   local res = M.lsp_get_resolved_result(responses)
+  -- use info from resolved item if available, otherwise just use the original completion item
   local item, client_id
   if vim.tbl_isempty(res) then
     client_id, item = lsp_data.client_id, completion_item
@@ -298,6 +299,7 @@ M.apply_additional_text_edits = function()
     client_id, item = unpack(res)
   end
   client_id = client_id or 0
+  -- apply edits if there's any
   local edits = item.additionalTextEdits or {}
   if vim.tbl_isempty(edits) then return end
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))

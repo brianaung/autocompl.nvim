@@ -16,7 +16,7 @@ M.completion = {
 M.info = {
   timer = vim.uv.new_timer(),
   bufnr = nil,
-  winid = nil,
+  winids = {},
 }
 
 -- https://github.com/folke/trouble.nvim/blob/40aad004f53ae1d1ba91bcc5c29d59f07c5f01d3/lua/trouble/util.lua#L71-L80
@@ -184,7 +184,12 @@ M.lsp_get_resolved_result = function(responses)
   return #results >= 1 and results[1] or {}
 end
 
--- Needs to be debounced, or the info window will not close.
+M.info_close = function()
+  for idx, winid in ipairs(M.info.winids) do
+    if pcall(vim.api.nvim_win_close, winid, false) then M.info.winids[idx] = nil end
+  end
+end
+
 M.info_start = M.debounce(M.info.timer, 100, function()
   M.info_close()
   -- Check whether to trigger another info window
@@ -201,11 +206,6 @@ M.info_start = M.debounce(M.info.timer, 100, function()
     M.info_window_open(res)
   end)
 end)
-
-M.info_close = function()
-  pcall(vim.api.nvim_win_close, M.info.winid, false)
-  M.info.winid = nil
-end
 
 -- Adapted from:
 -- https://github.com/echasnovski/mini.completion/blob/main/lua/mini/completion.lua#L911
@@ -232,7 +232,8 @@ M.info_window_open = function(res)
   -- Open window ==========
   local win_opts = M.info_get_win_opts()
   if vim.tbl_isempty(win_opts) then return end
-  M.info.winid = vim.api.nvim_open_win(M.info.bufnr, false, win_opts)
+  -- Keep winids for later cleanup
+  table.insert(M.info.winids, vim.api.nvim_open_win(M.info.bufnr, false, win_opts))
 end
 
 M.info_get_win_opts = function()

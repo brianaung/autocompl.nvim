@@ -213,10 +213,20 @@ end
 M.info_window_open = function(res)
   -- Get info string
   local documentation = res.documentation or {}
-  local info = type(documentation) == "string" and documentation or (vim.tbl_get(documentation, "value") or "")
-  if info == "" then return end
+  local info = type(res.documentation or {}) == "string" and documentation
+    or (vim.tbl_get(documentation, "value") or "")
+  local detail = res.detail or ""
+  if info == "" and detail == "" then return end
+  local input
+  if detail == "" then
+    input = info
+  elseif info == "" then
+    input = detail
+  else
+    input = detail .. "\n" .. info
+  end
   -- Set markdown lines in info window buffer
-  local lines = vim.lsp.util.convert_input_to_markdown_lines(info) or {}
+  local lines = vim.lsp.util.convert_input_to_markdown_lines(input) or {}
   vim.lsp.util.stylize_markdown(M.info.bufnr, lines)
   if vim.tbl_isempty(lines) then return end
   -- Open window ==========

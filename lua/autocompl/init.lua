@@ -1,4 +1,5 @@
 local M = {}
+
 local AutoCompl = {}
 
 SENT = "SENT"
@@ -41,22 +42,12 @@ end
 AutoCompl.setup = function()
   _G.AutoCompl = AutoCompl
 
-  vim.opt.completeopt = { "menuone", "noselect", "noinsert" }
-  vim.opt.shortmess:append "c"
-
-  M.setup_keymaps {
-    confirm = "<C-y>",
-    select_next = "<C-n>",
-    select_prev = "<C-p>",
-    snippet_jump_next = "<C-k>",
-    snippet_jump_prev = "<C-j>",
-  }
-
   -- Create a permanent scratch buffer for info window
   M.info.bufnr = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_name(M.info.bufnr, "AutoCompl:info-window")
   vim.fn.setbufvar(M.info.bufnr, "&buftype", "nofile")
 
+  -- Setup autocommands
   M.au({ "BufEnter", "LspAttach" }, M.setup_completefunc, "")
   M.au("InsertCharPre", M.completion_start, "")
   M.au("CompleteChanged", M.info_start, "")
@@ -137,9 +128,7 @@ M.completion_process_items = function(items, base)
     -- Fuzzy pattern matching and scoring
     if vim.startswith(text, base:sub(1, 1)) then
       local score = vim.fn.matchfuzzypos({ text }, base)[3]
-      if not vim.tbl_isempty(score) then
-        vim.list_extend(matched_items, { { score = score[1], item = item } })
-      end
+      if not vim.tbl_isempty(score) then vim.list_extend(matched_items, { { score = score[1], item = item } }) end
     end
   end
   -- Sort them based on the pattern matching scores
@@ -314,59 +303,6 @@ end
 M.has_lsp_clients = function()
   local clients = vim.lsp.get_clients { bufnr = 0, method = "textDocument/completion" }
   return not vim.tbl_isempty(clients)
-end
-
-M.setup_keymaps = function(keys)
-  local k = {
-    ["confirm"] = function(key)
-      vim.keymap.set("i", key, function()
-        if vim.fn.complete_info()["selected"] ~= -1 then return "<C-y>" end
-        if vim.fn.pumvisible() ~= 0 then return "<C-n><C-y>" end
-        return key
-      end, { expr = true })
-      if key ~= "<CR>" then
-        vim.keymap.set("i", "<CR>", function()
-          if vim.fn.complete_info()["selected"] ~= -1 then return "<C-y>" end
-          if vim.fn.pumvisible() ~= 0 then return "<C-e><CR>" end
-          return "<CR>"
-        end, { expr = true })
-      end
-    end,
-    ["select_next"] = function(key)
-      vim.keymap.set("i", key, function()
-        if vim.fn.pumvisible() ~= 0 then return "<C-n>" end
-        return key
-      end, { expr = true })
-    end,
-    ["select_prev"] = function(key)
-      vim.keymap.set("i", key, function()
-        if vim.fn.pumvisible() ~= 0 then return "<C-p>" end
-        return key
-      end, { expr = true })
-    end,
-    ["snippet_jump_next"] = function(key)
-      vim.keymap.set({ "i", "s" }, key, function()
-        if vim.snippet.active { direction = 1 } then
-          return "<cmd>lua vim.snippet.jump(1)<cr>"
-        else
-          -- TODO fallback to default? but it make typing experience bad sometimes
-        end
-      end, { expr = true })
-    end,
-    ["snippet_jump_prev"] = function(key)
-      vim.keymap.set({ "i", "s" }, key, function()
-        if vim.snippet.active { direction = -1 } then
-          return "<cmd>lua vim.snippet.jump(-1)<cr>"
-        else
-          -- TODO fallback to default? but it make typing experience bad sometimes
-        end
-      end, { expr = true })
-    end,
-  }
-
-  for cmd, key in pairs(keys) do
-    k[cmd](key)
-  end
 end
 
 return AutoCompl

@@ -1,12 +1,16 @@
-local M = {}
-
 local AutoCompl = {}
+local M = {}
 
 SENT = "SENT"
 RECEIVED = "RECEIVED"
 DONE = "DONE"
 
 M.ns_id = vim.api.nvim_create_namespace "AutoCompl"
+
+M.opts = {
+  completion_timeout = 150,
+  info_timeout = 150,
+}
 
 M.completion = {
   timer = vim.uv.new_timer(),
@@ -16,9 +20,19 @@ M.completion = {
 
 M.info = {
   timer = vim.uv.new_timer(),
+  status = DONE,
+  responses = {},
   bufnr = nil,
   winids = {},
 }
+
+M.au = function(event, callback, desc)
+  vim.api.nvim_create_autocmd(event, {
+    group = vim.api.nvim_create_augroup("AutoCompl", { clear = false }),
+    callback = callback,
+    desc = desc,
+  })
+end
 
 -- https://github.com/folke/trouble.nvim/blob/40aad004f53ae1d1ba91bcc5c29d59f07c5f01d3/lua/trouble/util.lua#L71-L80
 M.debounce = function(timer, ms, fn)
@@ -31,16 +45,14 @@ M.debounce = function(timer, ms, fn)
   end
 end
 
-M.au = function(event, callback, desc)
-  vim.api.nvim_create_autocmd(event, {
-    group = vim.api.nvim_create_augroup("AutoCompl", { clear = false }),
-    callback = callback,
-    desc = desc,
-  })
-end
-
-AutoCompl.setup = function()
+AutoCompl.setup = function(opts)
   _G.AutoCompl = AutoCompl
+
+  -- Assign options
+  M.opts = {
+    completion_timeout = opts.completion_timeout or M.opts.completion_timeout,
+    info_timeout = opts.info_timeout or M.opts.info_timeout,
+  }
 
   -- Create a permanent scratch buffer for info window
   M.info.bufnr = vim.api.nvim_create_buf(false, true)
@@ -48,15 +60,62 @@ AutoCompl.setup = function()
   vim.fn.setbufvar(M.info.bufnr, "&buftype", "nofile")
 
   -- Setup autocommands
-  M.au({ "BufEnter", "LspAttach" }, M.setup_completefunc, "")
-  M.au("InsertCharPre", M.completion_start, "")
-  M.au("CompleteChanged", M.info_start, "")
+  M.au({ "BufEnter", "LspAttach" }, M.set_completefunc, "")
+  M.au("InsertCharPre", M.start_completion, "")
+  M.au("CompleteChanged", M.start_info, "")
   M.au("CompleteDonePre", M.on_completedonepre, "")
 end
 
-M.setup_completefunc = function(e) vim.bo[e.buf].completefunc = "v:lua.AutoCompl.completefunc" end
+M.has_lsp_clients = function()
+  local clients = vim.lsp.get_clients { bufnr = 0, method = "textDocument/completion" }
+  return not vim.tbl_isempty(clients)
+end
 
-M.completion_start = M.debounce(M.completion.timer, 100, function()
+M.set_completefunc = function(e) vim.bo[e.buf].completefunc = "v:lua.AutoCompl.completefunc" end
+
+-- On InsertCharPre, completefunc gets called twice.
+-- - first invocation: findstart = 1
+-- - second invocation: findstart = 0
+-- On the first invocation, we make a completion request, which re-triggers completefunc ,therefore restarting the two invocations.
+-- Now, for this (second) first invocation, we don't make another request anymore. We return the col where completion starts.
+-- On the second invocation, we use the responses we got from the earlier request, process and return them to show in a completion list.
+AutoCompl.completefunc = function(findstart, base)
+  if not vim.list_contains({ SENT, RECEIVED }, M.completion.status) then
+    M.completion.status = SENT
+    vim.lsp.buf_request_all(0, "textDocument/completion", vim.lsp.util.make_position_params(), function(responses)
+      M.completion.status = RECEIVED
+      M.completion.responses = responses
+      M.start_completion()
+    end)
+    return findstart == 1 and -3 or {}
+  end
+  if findstart == 1 then
+    return M.findstart()
+  else
+    M.completion.status = DONE
+    local results = M.process_lsp_responses(
+      M.completion.responses,
+      function(res) return vim.tbl_get(res, "items") or res end
+    )
+    return M.process_completion_items(results, base)
+  end
+end
+
+M.findstart = function()
+  local col = vim.api.nvim_win_get_cursor(0)[2]
+  local line = vim.api.nvim_get_current_line()
+  return vim.fn.match(line:sub(1, col), "\\k*$")
+end
+
+M.process_lsp_responses = function(responses, processor)
+  local results = {}
+  for client_id, response in pairs(responses) do
+    if not response.err and response.result then table.insert(results, { client_id, processor(response.result) }) end
+  end
+  return results
+end
+
+M.start_completion = M.debounce(M.completion.timer, M.opts.completion_timeout, function()
   if vim.fn.pumvisible() ~= 0 then return end -- Pmenu is visible
   if vim.fn.mode() ~= "i" then return end -- Not in insert mode
   if vim.api.nvim_get_option_value("buftype", { buf = 0 }) ~= "" then return end -- Not a normal buffer
@@ -67,132 +126,70 @@ M.completion_start = M.debounce(M.completion.timer, 100, function()
   end
 end)
 
--- On InsertCharPre, completefunc gets called twice.
--- - first invocation: findstart = 1
--- - second invocation: findstart = 0
--- On the first invocation, we make a completion request, which re-triggers completefunc ,therefore restarting the two invocations.
--- Now, for this (second) first invocation, we don't make another request anymore. We return the col where completion starts.
--- On the second invocation, we use the responses we got from the earlier request, process and return them to show in a completion list.
-AutoCompl.completefunc = function(findstart, base)
-  if not vim.list_contains({ SENT, RECEIVED }, M.completion.status) then
-    M.completion_make_request()
-    return findstart == 1 and -3 or {}
-  end
-  if findstart == 1 then
-    return M.completion_findstart()
-  else
-    M.completion.status = DONE
-    return M.completion_process_responses(base, M.completion.responses)
-  end
-end
-
-M.completion_make_request = function()
-  M.completion.status = SENT
-  vim.lsp.buf_request_all(0, "textDocument/completion", vim.lsp.util.make_position_params(), function(responses)
-    M.completion.status = RECEIVED
-    M.completion.responses = responses
-    M.completion_start()
-  end)
-end
-
-M.completion_findstart = function()
-  local col = vim.api.nvim_win_get_cursor(0)[2]
-  local line = vim.api.nvim_get_current_line()
-  -- TODO implement findstart using lsp
-  return vim.fn.match(line:sub(1, col), "\\k*$")
-end
-
-M.completion_process_responses = function(base, responses)
+M.process_completion_items = function(results, base)
   local words = {}
-  for client_id, response in pairs(responses) do
-    if response.err or not response.result then goto continue end
-    local items = vim.tbl_get(response.result, "items") or response.result
-    items = M.completion_process_items(items, base)
+  for _, result in ipairs(results) do
+    local client_id, items = unpack(result)
     if vim.tbl_isempty(items) then goto continue end
-    vim.list_extend(words, M.completion_get_words(items, client_id))
+    -- Filter items
+    local matched_items = {}
+    for _, item in pairs(items) do
+      local text = item.filterText or (vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "")
+      if vim.startswith(text, base:sub(1, 1)) then vim.list_extend(matched_items, { item }) end
+    end
+    table.sort(matched_items, function(a, b) return (a.sortText or a.label) < (b.sortText or b.label) end)
+    -- Construct the table of items for the pmenu content
+    for _, item in pairs(matched_items) do
+      table.insert(words, {
+        word = vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "",
+        abbr = item.label,
+        kind = vim.lsp.protocol.CompletionItemKind[item.kind] or "Unknown",
+        icase = 1,
+        dup = 1,
+        empty = 1,
+        user_data = {
+          nvim = { lsp = { completion_item = item, client_id = client_id } },
+        },
+      })
+    end
     ::continue::
   end
   return words
 end
 
--- TODO improve completion item matching algorithm, and better fuzzy search
-M.completion_process_items = function(items, base)
-  local matched_items = {}
-  for _, item in pairs(items) do
-    local text = item.filterText or (vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "")
-    -- If base only contains lower chars, do case-insensitive matching
-    if not base:match "%u" then
-      text = text:lower()
-      base = base:lower()
-    end
-    -- Fuzzy pattern matching and scoring
-    if vim.startswith(text, base:sub(1, 1)) then
-      local score = vim.fn.matchfuzzypos({ text }, base)[3]
-      if not vim.tbl_isempty(score) then vim.list_extend(matched_items, { { score = score[1], item = item } }) end
-    end
-  end
-  -- Sort them based on the pattern matching scores
-  table.sort(matched_items, function(a, b) return a.score > b.score end)
-  -- Sort again based on LSP sortText
-  table.sort(
-    matched_items,
-    function(a, b) return (a.item.sortText or a.item.label) < (b.item.sortText or b.item.label) end
-  )
-  -- Flatten into items list
-  local res = {}
-  for _, item in ipairs(matched_items) do
-    vim.list_extend(res, { item.item })
-  end
-  return res
-end
-
-M.completion_get_words = function(items, client_id)
-  local words = {}
-  for _, item in pairs(items) do
-    table.insert(words, {
-      word = vim.tbl_get(item, "textEdit", "newText") or item.insertText or item.label or "",
-      abbr = item.label,
-      kind = vim.lsp.protocol.CompletionItemKind[item.kind] or "Unknown",
-      icase = 1,
-      dup = 1,
-      empty = 1,
-      user_data = {
-        nvim = { lsp = { completion_item = item, client_id = client_id } },
-      },
-    })
-  end
-  return words
-end
-
-M.lsp_get_resolved_result = function(responses)
-  local results = {}
-  for resolved_client_id, response in pairs(responses) do
-    if not response.err and response.result then table.insert(results, { resolved_client_id, response.result }) end
-  end
-  return #results >= 1 and results[1] or {}
-end
-
-M.info_close = function()
+M.stop_info = function()
   for idx, winid in ipairs(M.info.winids) do
     if pcall(vim.api.nvim_win_close, winid, false) then M.info.winids[idx] = nil end
   end
 end
 
-M.info_start = M.debounce(M.info.timer, 100, function()
-  M.info_close()
+M.start_info = M.debounce(M.info.timer, M.opts.info_timeout, function()
+  M.stop_info()
   -- Check whether to trigger another info window
+  if not M.has_lsp_clients() then return end
   if vim.fn.pumvisible() == 0 then return end -- Pmenu is not visible
   if vim.fn.mode() ~= "i" then return end -- Not in insert mode
   if vim.fn.complete_info()["selected"] == -1 then return end -- No items is selected
-  -- Make resolved info request
+  -- Check if completion item exists
   local lsp_data = vim.tbl_get(vim.v.completed_item, "user_data", "nvim", "lsp") or {}
   local _, completion_item = lsp_data.client_id or 0, lsp_data.completion_item or {}
   if vim.tbl_isempty(completion_item) then return end
-  vim.lsp.buf_request_all(0, "completionItem/resolve", completion_item, function(responses)
-    local _, res = unpack(M.lsp_get_resolved_result(responses))
-    res = res and res or completion_item
-    M.info_window_open(res)
-  end)
+  -- Make a request if not made already
+  if not vim.list_contains({ SENT, RECEIVED }, M.info.status) then
+    M.info.status = SENT
+    vim.lsp.buf_request_all(0, "completionItem/resolve", completion_item, function(responses)
+      M.info.status = RECEIVED
+      M.info.responses = responses
+      M.start_info()
+    end)
+  else
+    -- Process resolved items
+    M.info.status = DONE
+    local results = M.process_lsp_responses(M.info.responses, function(res) return res end)
+    local _, result = unpack(#results >= 1 and results[1] or {})
+    result = result and result or completion_item
+    M.info_window_open(result)
+  end
 end)
 
 -- Adapted from:
@@ -258,7 +255,7 @@ M.info_get_win_opts = function()
 end
 
 M.on_completedonepre = function()
-  M.info_close()
+  M.stop_info()
   M.expand_snippet()
   M.apply_additional_text_edits()
 end
@@ -278,19 +275,21 @@ M.apply_additional_text_edits = function()
   local completion_item = lsp_data.completion_item or {}
   if vim.tbl_isempty(completion_item) then return end
   -- make a synchronous request to get resolved info
-  local responses = vim.lsp.buf_request_sync(0, "completionItem/resolve", completion_item, 1000)
-  local res = M.lsp_get_resolved_result(responses)
+  -- local responses = vim.lsp.buf_request_sync(0, "completionItem/resolve", completion_item, 1000)
+  local results = M.process_lsp_responses(M.info.responses, function(res) return res end)
+  local result = #results >= 1 and results[1] or {}
   -- use info from resolved item if available, otherwise just use the original completion item
   local item, client_id
-  if vim.tbl_isempty(res) then
+  if vim.tbl_isempty(result) then
     client_id, item = lsp_data.client_id, completion_item
   else
-    client_id, item = unpack(res)
+    client_id, item = unpack(result)
   end
   client_id = client_id or 0
   -- apply edits if there's any
   local edits = item.additionalTextEdits or {}
   if vim.tbl_isempty(edits) then return end
+  -- https://github.com/echasnovski/mini.completion/blob/main/lua/mini/completion.lua#L889
   local row, col = unpack(vim.api.nvim_win_get_cursor(0))
   local extmark_id = vim.api.nvim_buf_set_extmark(0, M.ns_id, row - 1, col, {})
   local offset_encoding = vim.lsp.get_client_by_id(client_id).offset_encoding
@@ -298,11 +297,6 @@ M.apply_additional_text_edits = function()
   local extmark_row, extmark_col = unpack(vim.api.nvim_buf_get_extmark_by_id(0, M.ns_id, extmark_id, {}))
   pcall(vim.api.nvim_buf_del_extmark, 0, M.ns_id, extmark_id)
   pcall(vim.api.nvim_win_set_cursor, 0, { extmark_row + 1, extmark_col })
-end
-
-M.has_lsp_clients = function()
-  local clients = vim.lsp.get_clients { bufnr = 0, method = "textDocument/completion" }
-  return not vim.tbl_isempty(clients)
 end
 
 return AutoCompl

@@ -1,14 +1,30 @@
 # autocompl.nvim
-A minimal and dependency-free auto-completion plugin built on top of Vim's builtin ins-completion mechanism.
+(WIP) A minimal and dependency-free auto-completion plugin built on top of vim's builtin ins-completion mechanism.
 
 ### Features
 - Async automatic LSP completion, with a fallback to buffer text.
 - Info window for more completion item documentation.
 - Snippet expansion and jump support.
-- Fuzzy matching capabilities.
 - Apply additional text edits (e.g. auto-imports).
 
-### Recommended Options
+### Roadmap
+- [ ] Fuzzy matching capabilities.
+- [ ] Signature help window.
+
+### Installation
+##### Using [lazy.nvim](https://github.com/folke/lazy.nvim):
+```lua
+{
+  "brianaung/autocompl.nvim",
+  opts = {
+    -- Default options.
+    -- completion_timeout = 150, -- completion menu debounced timeout
+    -- info_timeout = 150, -- info window debounced timeout
+  },
+}
+```
+
+### Recommended VIM Options
 ```lua
 -- A combination of ins-completion options for better experience. See `:h completeopt`
 vim.opt.completeopt = { "menuone", "noselect", "noinsert" }
@@ -58,10 +74,6 @@ vim.keymap.set({ "i", "s" }, "<C-j>", function()
   end
 end, { expr = true })
 ```
-
-### WIP
-- [ ] Signature help window.
-- [ ] Highlight fuzzy-matched characters.
 
 ### ~Similar~ Better alternatives
 - [nvim-cmp](https://github.com/hrsh7th/nvim-cmp)

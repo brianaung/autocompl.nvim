@@ -9,7 +9,8 @@ M.ns_id = vim.api.nvim_create_namespace "AutoCompl"
 
 M.opts = {
   completion_timeout = 150,
-  info_timeout = 150,
+  info_timeout = 100,
+  signature_timeout = 100,
 }
 
 M.completion = {
@@ -24,6 +25,15 @@ M.info = {
   responses = {},
   bufnr = nil,
   winids = {},
+}
+
+M.signature = {
+  timer = vim.uv.new_timer(),
+  status = DONE,
+  responses = {},
+  bufnr = nil,
+  winids = {},
+  active = nil,
 }
 
 M.au = function(event, callback, desc)
@@ -59,11 +69,18 @@ AutoCompl.setup = function(opts)
   vim.api.nvim_buf_set_name(M.info.bufnr, "AutoCompl:info-window")
   vim.fn.setbufvar(M.info.bufnr, "&buftype", "nofile")
 
+  -- Create a permanent scratch buffer for signature window
+  M.signature.bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(M.signature.bufnr, "AutoCompl:signature-window")
+  vim.fn.setbufvar(M.signature.bufnr, "&buftype", "nofile")
+
   -- Setup autocommands
   M.au({ "BufEnter", "LspAttach" }, M.set_completefunc, "")
   M.au("InsertCharPre", M.start_completion, "")
   M.au("CompleteChanged", M.start_info, "")
+  M.au("CursorMovedI", M.start_signature, "")
   M.au("CompleteDonePre", M.on_completedonepre, "")
+  M.au("InsertLeavePre", M.on_insertleavepre, "")
 end
 
 M.has_lsp_clients = function()
@@ -214,7 +231,7 @@ M.info_window_open = function(res)
   local lines = vim.lsp.util.convert_input_to_markdown_lines(input) or {}
   vim.lsp.util.stylize_markdown(M.info.bufnr, lines)
   if vim.tbl_isempty(lines) then return end
-  -- Open window ==========
+  -- Open window
   local win_opts = M.info_get_win_opts()
   if vim.tbl_isempty(win_opts) then return end
   -- Keep winids for later cleanup
@@ -254,10 +271,91 @@ M.info_get_win_opts = function()
   }
 end
 
-M.on_completedonepre = function()
-  M.stop_info()
-  M.expand_snippet()
-  M.apply_additional_text_edits()
+M.stop_signature = function()
+  M.signature.active = nil
+  for idx, winid in ipairs(M.signature.winids) do
+    if pcall(vim.api.nvim_win_close, winid, false) then M.signature.winids[idx] = nil end
+  end
+end
+
+M.start_signature = M.debounce(M.signature.timer, M.opts.signature_timeout, function()
+  if not M.has_lsp_clients() then return end
+  if vim.fn.mode() ~= "i" then return end -- Not in insert mode
+
+  -- Make a request if not made already
+  if not vim.list_contains({ SENT, RECEIVED }, M.signature.status) then
+    M.signature.status = SENT
+    vim.lsp.buf_request_all(0, "textDocument/signatureHelp", vim.lsp.util.make_position_params(), function(responses)
+      M.signature.status = RECEIVED
+      M.signature.responses = responses
+      M.start_signature()
+    end)
+  else
+    -- Process signature responses
+    M.signature.status = DONE
+    local results = M.process_lsp_responses(M.signature.responses, function(res) return res end)
+    local _, result = unpack(results[1] or {})
+
+    -- No signature help available, stop any active signature help windows and return
+    if not result or not result.signatures or vim.tbl_isempty(result.signatures) then
+      M.stop_signature()
+      return
+    end
+
+    -- Get active signature from response
+    -- If active signature outside the range, default to 0
+    local active_signature = result.activeSignature or 0
+    if active_signature < 0 or active_signature >= #result.signatures then active_signature = 0 end
+    local signature = result.signatures[active_signature + 1]
+
+    -- If new signature help is same as currently active one, do nth
+    if M.signature.active == signature.label then return end
+
+    M.signature.active = signature.label
+
+    local lines = vim.lsp.util.convert_input_to_markdown_lines(signature.label) or {}
+    if vim.tbl_isempty(lines) then return end
+    vim.lsp.util.stylize_markdown(M.signature.bufnr, lines)
+
+    -- Open window
+    local win_opts = M.signature_get_win_opts()
+    if vim.tbl_isempty(win_opts) then return end
+    -- Keep winids for later cleanup
+    table.insert(M.signature.winids, vim.api.nvim_open_win(M.signature.bufnr, false, win_opts))
+  end
+end)
+
+M.signature_get_win_opts = function()
+  local winline = vim.fn.winline()
+  local space_top = winline - 1
+  local space_bottom = vim.api.nvim_win_get_height(0) - winline
+
+  local bufpos = vim.api.nvim_win_get_cursor(0)
+  bufpos[1] = bufpos[1] - 1
+
+  -- Calculate width (can grow to full space) and height
+  local width, height =
+    vim.lsp.util._make_floating_popup_size(vim.api.nvim_buf_get_lines(M.signature.bufnr, 0, -1, false))
+
+  -- TODO find a better placement for signature help window
+  local anchor
+  if height <= space_top then
+    anchor = "SW" -- show above
+  else
+    anchor = "NW" -- show below
+  end
+
+  return {
+    relative = "win",
+    bufpos = bufpos,
+    anchor = anchor,
+    col = 0,
+    width = width,
+    height = height,
+    focusable = false,
+    style = "minimal",
+    border = "none",
+  }
 end
 
 M.expand_snippet = function()
@@ -297,6 +395,16 @@ M.apply_additional_text_edits = function()
   local extmark_row, extmark_col = unpack(vim.api.nvim_buf_get_extmark_by_id(0, M.ns_id, extmark_id, {}))
   pcall(vim.api.nvim_buf_del_extmark, 0, M.ns_id, extmark_id)
   pcall(vim.api.nvim_win_set_cursor, 0, { extmark_row + 1, extmark_col })
+end
+
+M.on_completedonepre = function()
+  M.expand_snippet()
+  M.apply_additional_text_edits()
+end
+
+M.on_insertleavepre = function()
+  M.stop_info()
+  M.stop_signature()
 end
 
 return AutoCompl

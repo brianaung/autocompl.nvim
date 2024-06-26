@@ -4,12 +4,12 @@
 ### Features
 - Async automatic LSP completion, with a fallback to buffer text.
 - Info window for more completion item documentation.
+- Signature helps.
 - Snippet expansion and jump support.
 - Apply additional text edits (e.g. auto-imports).
 
 ### Roadmap
 - [ ] Fuzzy matching capabilities.
-- [ ] Signature help window.
 
 ### Installation
 ##### Using [lazy.nvim](https://github.com/folke/lazy.nvim):

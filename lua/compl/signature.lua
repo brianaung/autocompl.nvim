@@ -3,6 +3,7 @@ local view = require "compl.view"
 
 local vim = vim
 local unpack = unpack
+local ns_id = vim.api.nvim_create_namespace "Compl:signature-help"
 
 ---@class compl.signature
 ---@field private view compl.view
@@ -39,25 +40,44 @@ function signature:start()
 			return
 		end
 
-		-- Get active signature from response
-		-- If active signature outside the range, default to 0
-		local active_index = result.activeSignature or 0
-		if active_index < 0 or active_index >= #result.signatures then active_index = 0 end
-		local active_signature = result.signatures[active_index + 1]
+		-- https://github.com/echasnovski/mini.completion/blob/main/lua/mini/completion.lua#L1131
+		local signature_id = result.activeSignature or 0
+		if signature_id < 0 or signature_id >= #result.signatures then signature_id = 0 end
+		local active_signature = result.signatures[signature_id + 1]
 
-		-- If new signature help is same as currently active one, do nth
-		if self.active == active_signature.label then return end
+		local param_id = active_signature.activeParameter or result.activeParameter or 0
+		if param_id < 0 or param_id >= #active_signature.parameters then param_id = 0 end
+		local active_param = active_signature.parameters[param_id + 1]
 
-		self.active = active_signature.label
+		-- Get the highlight range of active param
+		local hl_range = {}
+		local first, last
+		if type(active_param.label) == "string" then
+			first, last = active_signature.label:find(vim.pesc(active_param.label))
+			-- Make zero-indexed and end-exclusive
+			if first then first = first - 1 end
+		elseif type(active_param.label) == "table" then
+			first, last = unpack(active_param.label)
+		end
+		if first and last then hl_range = { first, last } end
 
+		-- Convert input into markdown lines, then configures them in its view's buffer
 		local lines = vim.lsp.util.convert_input_to_markdown_lines(active_signature.label) or {}
 		if vim.tbl_isempty(lines) then return end
-
 		self.view:stylize_markdown(lines)
+
+		-- Highlight active param in current signature help window
+		if not vim.tbl_isempty(hl_range) then
+			vim.api.nvim_buf_clear_namespace(self.view.bufnr, ns_id, 0, -1)
+			vim.api.nvim_buf_add_highlight(self.view.bufnr, ns_id, "PmenuSel", 0, hl_range[1], hl_range[2])
+		end
+
+		-- If new signature help is same as currently active one, don't open a new window
+		if self.active == active_signature.label then return end
+		self.active = active_signature.label
 
 		local winopts = self:get_winopts()
 		if vim.tbl_isempty(winopts) then return end
-
 		self.view:open(winopts)
 	end
 end

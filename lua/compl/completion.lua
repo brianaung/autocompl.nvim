@@ -6,12 +6,14 @@ local unpack = unpack
 ---@class compl.completion
 ---@field private lsp compl.lsp
 ---@field public timer 'uv_timer_t'
+---@field public timeout integer
 local completion = {}
 
-function completion:new()
+function completion:new(opts)
 	self = setmetatable({}, { __index = completion })
-	self.timer = vim.uv.new_timer()
 	self.lsp = lsp:new()
+	self.timer = vim.uv.new_timer()
+	self.timeout = opts.timeout or 100
 	return self
 end
 

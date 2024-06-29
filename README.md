@@ -9,7 +9,8 @@
 - Apply additional text edits (e.g. auto-imports).
 
 ### Roadmap
-- [ ] Fuzzy matching capabilities.
+- [ ] Improve matching algorithm.
+- [ ] Explore opportunities for responses caching.
 
 ### Installation
 ##### Using [lazy.nvim](https://github.com/folke/lazy.nvim):
@@ -17,9 +18,16 @@
 {
   "brianaung/autocompl.nvim",
   opts = {
-    -- Default options.
-    -- completion_timeout = 150, -- completion menu debounced timeout
-    -- info_timeout = 150, -- info window debounced timeout
+    -- Default options:
+    -- completion = {
+    --   timeout = 100,
+    -- },
+    -- info = {
+    --   timeout = 100,
+    -- },
+    -- signature = {
+    --   timeout = 100,
+    -- },
   },
 }
 ```

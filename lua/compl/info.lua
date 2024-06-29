@@ -8,13 +8,15 @@ local unpack = unpack
 ---@field private view compl.view
 ---@field private lsp compl.lsp
 ---@field public timer 'uv_timer_t'
+---@field public timeout integer
 local info = {}
 
-function info:new()
+function info:new(opts)
 	self = setmetatable({}, { __index = info })
 	self.view = view:new()
 	self.lsp = lsp:new()
 	self.timer = vim.uv.new_timer()
+	self.timeout = opts.timeout or 100
 	return self
 end
 

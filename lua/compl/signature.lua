@@ -10,14 +10,16 @@ local ns_id = vim.api.nvim_create_namespace "Compl:signature-help"
 ---@field private lsp compl.lsp
 ---@field private active string
 ---@field public timer 'uv_timer_t'
+---@field public timeout integer
 local signature = {}
 
-function signature:new()
+function signature:new(opts)
 	self = setmetatable({}, { __index = signature })
 	self.view = view:new()
 	self.lsp = lsp:new()
 	self.active = nil
 	self.timer = vim.uv.new_timer()
+	self.timeout = opts.timeout or 100
 	return self
 end
 

@@ -1,6 +1,4 @@
 {
-  description = "My NixOS flake";
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };
@@ -17,7 +15,5 @@
           stylua
         ];
       };
-
-      formatter.x86_64-linux = pkgs.nixpkgs-fmt;
     };
 }
